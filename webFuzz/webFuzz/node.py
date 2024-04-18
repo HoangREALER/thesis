@@ -12,7 +12,7 @@ from aiohttp.typedefs import CIMultiDictProxy
 
 from .environment     import env
 from .misc            import object_to_tuple, query_to_dict, calc_weighted_difference, to_bucket, parse_headers, parse_file
-from .types           import OutputMethod, Params, Policy, XSSConfidence, UrlType, HTTPMethod, FuzzerException, CFGTuple, CFG
+from .types           import OutputMethod, Params, Policy, XSSConfidence, SQLIConfidence, SQLIType, UrlType, HTTPMethod, FuzzerException, CFGTuple, CFG
 
 # post (and maybe get) parameters can get pretty huge. for instance when sending a file
 # via post. Or sometimes a parameter can get reescaped in every request/response cycle
@@ -39,6 +39,7 @@ class Node:
                  params: Optional[Params] = None,
                  parent_request: Optional[Node] = None,
                  exec_time: float = 0,
+                 sqli_type: SQLIType = SQLIType.NONE,
                  label: str = ""):
 
         if not params:

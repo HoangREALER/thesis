@@ -6,7 +6,7 @@ from bs4          import BeautifulSoup, element
 from typing       import Set, List, Dict, Union, Any
 
 from .misc        import get_logger, longest_str_match
-from .types       import XSSConfidence
+from .types       import XSSConfidence, SQLIConfidence, InjectionType
 from .node        import Node
 
 urlAttributes = [
@@ -22,13 +22,19 @@ urlAttributes = [
 ]
 
 class Detector():
-    def __init__(self):
-        self.xss_count = 0
+    def __init__(self, injection_type: InjectionType = InjectionType.XSS):
+        self.vuln_count = 0
 
-        self._flagged_elements: Dict[XSSConfidence, Dict[str,Set[str]]] = {
+        self._flagged_elements_xss: Dict[XSSConfidence, Dict[str,Set[str]]] = {
             XSSConfidence.LOW : {},
             XSSConfidence.MEDIUM : {},
             XSSConfidence.HIGH : {}
+        }
+
+        self._flagged_elements_sql: Dict[SQLIConfidence, Dict[str,Set[str]]] = {
+            SQLIConfidence.LOW : {},
+            SQLIConfidence.MEDIUM : {},
+            SQLIConfidence.HIGH : {}
         }
 
     @staticmethod
@@ -121,25 +127,25 @@ class Detector():
         if conf == XSSConfidence.NONE:
             return
 
-        if node.url not in self._flagged_elements[conf]:
-            self._flagged_elements[conf][node.url] = set()
+        if node.url not in self._flagged_elements_xss[conf]:
+            self._flagged_elements_xss[conf][node.url] = set()
 
-        if id_ not in self._flagged_elements[conf][node.url]:
+        if id_ not in self._flagged_elements_xss[conf][node.url]:
 
-            if not self._flagged_elements[XSSConfidence.HIGH].get(node.url, []):
+            if not self._flagged_elements_xss[XSSConfidence.HIGH].get(node.url, []):
                 logger.warning("Possible xss found with confidence %s. Type: %s, Value: %s, Url: %s, Node: %s",
                                 conf, elem_type, value, node.full_url, node)
                 if conf == XSSConfidence.HIGH:
-                    self.xss_count += 1
+                    self.vuln_count += 1
 
-            self._flagged_elements[conf][node.url].add(id_)
+            self._flagged_elements_xss[conf][node.url].add(id_)
 
             if node.is_mutated:
                 # reward parent node with a sink found
                 node.parent_request.has_sinks = True
 
     def should_analyze(self, id_: str, url: str, content: str) -> bool:
-        if id_ not in self._flagged_elements[XSSConfidence.HIGH].get(url, []) and \
+        if id_ not in self._flagged_elements_xss[XSSConfidence.HIGH].get(url, []) and \
             longest_str_match(content, "0xdeadbeef") >= 5:
             return True
         

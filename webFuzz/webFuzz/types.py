@@ -67,6 +67,18 @@ class XSSConfidence(ExtendedEnum):
     MEDIUM = 2
     HIGH = 3
 
+class SQLIConfidence(ExtendedEnum):
+    NONE = 0
+    LOW = 1
+    MEDIUM = 2
+    HIGH = 3
+
+
+class SQLIType(ExtendedEnum):
+    COMPARISON = 0
+    GREP = 1
+    BLIND = 2
+
 BlockRule = NamedTuple("BlockRule", [("url",str), ("key",str), ("val", str), ("method", Optional[HTTPMethod])])
 Params = Dict[HTTPMethod, Dict[str, List[str]]]
 

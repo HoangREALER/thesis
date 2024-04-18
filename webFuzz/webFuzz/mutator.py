@@ -95,7 +95,7 @@ def read_tokens(filename:str) -> List[str]:
 
 class Mutator:
     def __init__(self, injection_type: str = 'xss'):
-        
+        self.injection_type = injection_type
         # register mutating functions
         if injection_type == 'xss':
             self.per_param_mutators = MutateFunctions(funcs=[
@@ -108,7 +108,7 @@ class Mutator:
             ])
         elif injection_type == 'sqli':
             self.per_param_mutators = MutateFunctions(funcs=[
-                MutateFunc(1, FREQ_XSS_PAYLOAD, MutatorSQL.add_sqli_payload),
+                MutateFunc(1, FREQ_SQLI_PAYLOAD, MutatorSQL.add_sqli_payload),
                 MutateFunc(2, FREQ_TYPE_ALTER, self.alter_type),
                 MutateFunc(3, FREQ_RAND_TEXT, self.add_random_text),
                 MutateFunc(4, FREQ_SKIP_PARAM, self.skip_param),
@@ -358,13 +358,13 @@ class MutatorXSS:
 
 class MutatorSQL:
     sqli_payload: Payloads = Payloads([
-        Kind(weight=40, payloads=read_tokens("Payloads/SQLi/generic")),
-        Kind(weight=10, payloads=read_tokens("Payloads/SQLi/boolean_blind")),
-        Kind(weight=10, payloads=read_tokens("Payloads/SQLi/error")),
-        Kind(weight=10, payloads=read_tokens("Payloads/SQLi/inline_query")),
-        Kind(weight=10, payloads=read_tokens("Payloads/SQLi/stacked_query")),
-        Kind(weight=10, payloads=read_tokens("Payloads/SQLi/timebased")),
-        Kind(weight=10, payloads=read_tokens("Payloads/SQLi/union"))
+        Kind(weight=10, payloads=read_tokens("Payloads/SQLi/generic")),
+        Kind(weight=30, payloads=read_tokens("Payloads/SQLi/boolean_blind")),
+        Kind(weight=20, payloads=read_tokens("Payloads/SQLi/error")),
+        Kind(weight=0, payloads=read_tokens("Payloads/SQLi/inline_query")),
+        Kind(weight=20, payloads=read_tokens("Payloads/SQLi/stacked_query")),
+        Kind(weight=20, payloads=read_tokens("Payloads/SQLi/timebased")),
+        Kind(weight=0, payloads=read_tokens("Payloads/SQLi/union"))
     ])
 
     @staticmethod
