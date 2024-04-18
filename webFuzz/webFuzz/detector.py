@@ -202,3 +202,12 @@ class Detector():
 
         node.xss_confidence = conf
         return conf
+
+
+    def sqli_scanner_comparison(self, node: Node, current: str, original: str) -> SQLIConfidence:
+        logger = get_logger(__name__)
+
+        conf = SQLIConfidence.NONE
+        logger.info("Performing SQLi detection...")
+
+        
