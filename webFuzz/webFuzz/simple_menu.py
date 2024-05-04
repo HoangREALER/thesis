@@ -6,7 +6,7 @@ from os             import system
 from typing         import Callable
 
 from .types         import ExitCode, get_logger
-from .environment   import env
+from .environment   import env, stats
 
 def clear(): 
     return system('clear')
@@ -61,30 +61,30 @@ class Simple_menu:
             current_time = time.clock_gettime(time.CLOCK_MONOTONIC)
 
             if (current_time - past_time > 2):
-                throughput = (fuzzer.stats.total_requests - past_count) / \
+                throughput = (stats.total_requests - past_count) / \
                              (current_time - past_time)
 
-                past_count = fuzzer.stats.total_requests
+                past_count = stats.total_requests
                 past_time = current_time
 
                 logger.info("Total Cov: %0.4f, Throughput: %0.2f", \
-                            fuzzer.stats.total_cover_score, throughput)
+                            stats.total_cover_score, throughput)
 
             self.printer("webFuzz\n-----\n")
             self.printer("Stats\n")
 
             self.printer('Runtime: {:0.2f} min'.format((current_time - start_time) / 60))
-            self.printer('Total Requests: {:d}'.format(fuzzer.stats.total_requests))
+            self.printer('Total Requests: {:d}'.format(stats.total_requests))
             self.printer('Throughput: {:0.2f} requests/s'.format(throughput))
-            self.printer('Crawler Pending URLs: {:d}'.format(fuzzer.stats.crawler_pending_urls))
-            self.printer('Current Coverage Score: {:0.4f}%'.format(fuzzer.stats.current_node.cover_score))
-            self.printer('Total Coverage Score: {:0.4f}%'.format(fuzzer.stats.total_cover_score))
-            self.printer('Possible XSS: {:d}'.format(fuzzer.stats.total_vuln))
+            self.printer('Crawler Pending URLs: {:d}'.format(stats.crawler_pending_urls))
+            self.printer('Current Coverage Score: {:0.4f}%'.format(stats.current_node.cover_score))
+            self.printer('Total Coverage Score: {:0.4f}%'.format(stats.total_cover_score))
+            self.printer('Possible XSS: {:d}'.format(stats.total_vuln))
 
-            self.printer('Executing link: {:s}'.format(fuzzer.stats.current_node.url[:105]))
-            self.printer('Response time: {:0.2f} sec'.format(fuzzer.stats.current_node.exec_time))
+            self.printer('Executing link: {:s}'.format(stats.current_node.url[:105]))
+            self.printer('Response time: {:0.2f} sec'.format(stats.current_node.exec_time))
 
-            if fuzzer.stats.current_node.is_mutated:
+            if stats.current_node.is_mutated:
                 self.printer('State: Fuzzing')
             else:
                 self.printer('State: Crawling')

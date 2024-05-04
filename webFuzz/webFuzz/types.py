@@ -14,6 +14,10 @@ from urllib.parse import ParseResult
 
 VERSION = 1.2
 
+# Strings for detecting formatting errors
+FORMAT_EXCEPTION_STRINGS = ("Type mismatch", "Error converting", "Please enter a", "Conversion failed", "String or binary data would be truncated", "Failed to convert", "unable to interpret text value", "Input string was not in a correct format", "System.FormatException", "java.lang.NumberFormatException", "ValueError: invalid literal", "TypeMismatchException", "CF_SQL_INTEGER", "CF_SQL_NUMERIC", " for CFSQLTYPE ", "cfqueryparam cfsqltype", "InvalidParamTypeException", "Invalid parameter type", "Attribute validation error for tag", "is not of type numeric", "<cfif Not IsNumeric(", "invalid input syntax for integer", "invalid input syntax for type", "invalid number", "character to number conversion error", "unable to interpret text value", "String was not recognized as a valid", "Convert.ToInt", "cannot be converted to a ", "InvalidDataException", "Arguments are of the wrong type")
+
+
 Label = int
 Bucket = int
 UrlType = ParseResult
@@ -74,13 +78,9 @@ class SQLIConfidence(ExtendedEnum):
     HIGH = 3
 
 
-class SQLIType(ExtendedEnum):
-    COMPARISON = 0
-    GREP = 1
-    BLIND = 2
-
 BlockRule = NamedTuple("BlockRule", [("url",str), ("key",str), ("val", str), ("method", Optional[HTTPMethod])])
 Params = Dict[HTTPMethod, Dict[str, List[str]]]
+ParamSQLiType = Dict[HTTPMethod, Dict[str, List[int]]]
 
 class Statistics():
     current_cover_score: float = 0.0
@@ -90,7 +90,10 @@ class Statistics():
     total_vuln: int = 0
     current_node: Any # actual type: Node (error due to cyclic import)
     
-    def __init__(self, initial_node):
+    def __init__(self, initial_node = None):
+        self.current_node = initial_node
+    
+    def setNode(self, initial_node):
         self.current_node = initial_node
 
 # CLI Arguments

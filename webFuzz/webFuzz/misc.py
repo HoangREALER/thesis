@@ -1,6 +1,7 @@
 import logging
 
 import asyncio
+import re
 import aiohttp
 
 from typing           import Callable, Iterator, Any, Dict, List, Tuple
@@ -11,6 +12,8 @@ from aiohttp.client   import ClientSession, TraceConfig
 from aiohttp.typedefs import CIMultiDictProxy
 from os               import path, access, R_OK
 from functools        import partial
+
+from thirdparty import six
 
 from .types           import get_logger, ExitCode, Numeric, Label, Bucket
 from .environment     import env
@@ -159,3 +162,43 @@ def rtt_trace_config() -> TraceConfig:
 
     return exec_time_config
 
+def htmlUnescape(value):
+    """
+    Returns (basic conversion) HTML unescaped value
+
+    >>> htmlUnescape('a&lt;b') == 'a<b'
+    True
+    """
+
+    retVal = value
+
+    if value and isinstance(value, six.string_types):
+        replacements = (("&lt;", '<'), ("&gt;", '>'), ("&quot;", '"'), ("&nbsp;", ' '), ("&amp;", '&'), ("&apos;", "'"))
+        for code, value in replacements:
+            retVal = retVal.replace(code, value)
+
+        try:
+            retVal = re.sub(r"&#x([^ ;]+);", lambda match: six.unichr(int(match.group(1), 16)), retVal)
+        except (ValueError, OverflowError):
+            pass
+
+    return retVal
+
+def getFilteredPageContent(page, onlyText=True, split=" "):
+    """
+    Returns filtered page content without script, style and/or comments
+    or all HTML tags
+
+    >>> getFilteredPageContent(u'<html><title>foobar</title><body>test</body></html>') == "foobar test"
+    True
+    """
+
+    retVal = page
+
+    # only if the page's charset has been successfully identified
+    if isinstance(page, six.text_type):
+        retVal = re.sub(r"(?si)<script.+?</script>|<!--.+?-->|<style.+?</style>%s" % (r"|<[^>]+>|\t|\n|\r" if onlyText else ""), split, page)
+        retVal = re.sub(r"%s{2,}" % split, split, retVal)
+        retVal = htmlUnescape(retVal.strip().strip(split))
+
+    return retVal

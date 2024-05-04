@@ -7,7 +7,7 @@
 """
 
 
-from .types import Arguments, ExitCode, InstrumentArgs
+from .types import Arguments, ExitCode, InstrumentArgs, Statistics
 from typing import Optional
 
 
@@ -16,4 +16,5 @@ class Environment:
     instrument_args: Optional[InstrumentArgs] = None
     shutdown_signal: ExitCode = ExitCode.NONE
 
+stats = Statistics()
 env = Environment()

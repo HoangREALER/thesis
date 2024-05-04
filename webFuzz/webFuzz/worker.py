@@ -8,7 +8,7 @@ from itertools    import repeat
 from contextlib   import asynccontextmanager
 
 # User defined modules
-from .environment   import env
+from .environment   import env, stats
 from .node          import Node
 from .types         import FuzzerLogger, get_logger, HTTPMethod, RequestStatus, Statistics, ExitCode, UnimplementedHttpMethod, InvalidContentType, InvalidHttpCode, XSSConfidence, InjectionType
 from .misc          import iter_join, lazyFunc
@@ -32,8 +32,7 @@ class Worker():
                  parser: Parser,
                  detector: Detector,
                  iterator: NodeIterator,
-                 session_node: Node,
-                 statistics: Statistics):
+                 session_node: Node):
 
         self.id = id_
         self._session = session
@@ -43,7 +42,6 @@ class Worker():
         self._detector = detector
         self._node_iterator = iterator
         self._session_node = session_node
-        self._stats = statistics
         self._injection_type = env.args.injection_type
         self.originalPage = dict()
 
@@ -59,10 +57,10 @@ class Worker():
         return self._task
 
     def update_stats(self, current_node: Node):
-        self._stats.total_cover_score = self._node_iterator.total_cover_score
-        self._stats.current_node = current_node
-        self._stats.crawler_pending_urls = self._crawler.pending_requests
-        self._stats.total_vuln = self._detector.vuln_count
+        stats.total_cover_score = self._node_iterator.total_cover_score
+        stats.current_node = current_node
+        stats.crawler_pending_urls = self._crawler.pending_requests
+        stats.total_vuln = self._detector.vuln_count
 
     @staticmethod
     def has_catchphrase(raw_html: str, catchphrase: str) -> bool:
@@ -94,7 +92,7 @@ class Worker():
                                 data=new_request.params[HTTPMethod.POST],
                                 trace_request_ctx=new_request) as r:
 
-            self._stats.total_requests += 1
+            stats.total_requests += 1
 
             if r.content_type and r.content_type.lower() != 'text/html':
                 raise InvalidContentType(r.content_type)
@@ -116,7 +114,7 @@ class Worker():
         async with self.http_send(request) as r:
             raw_html: str = await r.text()
 
-            logger.debug(raw_html)
+            # logger.debug(raw_html)
 
             if request.label == 'session_check':
                 # special node to check if we are logged in
@@ -126,12 +124,11 @@ class Worker():
 
             # html5lib parser is the most identical method to how browsers parse HTMLs
             soup = lazyFunc(BeautifulSoup, raw_html, "html5lib")
-
-            if self._injection_type == InjectionType.XSS:
+            if self._injection_type == InjectionType.XSS: 
                 if self._detector.xss_precheck(raw_html):
                     self._detector.xss_scanner(request, next(soup))
             elif self._injection_type == InjectionType.SQLI:
-                self._detector.sqli_scanner(request, raw_html)
+                await self._detector.sqli_scanner(request, raw_html)
 
             cfg = request.parse_instrumentation(r.headers, self.id)
 
@@ -166,9 +163,6 @@ class Worker():
                                             periodic=periodic,
                                             interval=LOGGED_IN_CHECK_INTERVAL):
             if src == self._crawler:
-                async with self.http_send(new_request=new_request) as r:
-                    raw_html: str = await r.text()
-                    self.originalPage[new_request.url] = raw_html
                 logger.info("Chosen an unvisited node")
 
             elif src == self._node_iterator:

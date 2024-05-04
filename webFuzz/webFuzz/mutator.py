@@ -10,7 +10,10 @@ from os.path        import dirname
 
 # User defined modules
 from .node          import Node
-from .types         import HTTPMethod, Params, get_logger
+from .types         import HTTPMethod, Params, ParamSQLiType, get_logger, InjectionType
+from lib.core.agent import agent
+from lib.core.data import conf
+from lib.core.enums import PAYLOAD
 
 
 # Define some key characters
@@ -21,13 +24,13 @@ HEURISTIC_CHECK_ALPHABET = ('"', '\'', ')', '(', ',', '.')
 ## XSS
 FREQ_STRXSS_PAYLOAD  = 0
 FREQ_XSS_PAYLOAD     = 35
-FREQ_TYPE_ALTER      = 5
-FREQ_RAND_TEXT       = 35
+FREQ_TYPE_ALTER      = 0
+FREQ_RAND_TEXT       = 0
 FREQ_SYNTAX_TOKEN    = 20
-FREQ_SKIP_PARAM      = 5
+FREQ_SKIP_PARAM      = 0
 ## SQLI
-FREQ_HEURISTIC_PAYLOAD = 25
-FREQ_SQLI_PAYLOAD     = 30
+FREQ_HEURISTIC_PAYLOAD = 0
+FREQ_SQLI_PAYLOAD     = 100
 
 # Smaller values indicate higher frequency
 FREQ_CLEAR_PARAM     = 5 
@@ -45,8 +48,9 @@ class MutateFunc(NamedTuple):
     weight: int
     func: Callable
 
-class Payloads(NamedTuple):
-    payloads: List[Kind]
+class Payloads():
+    def __init__(self, payloads: List[Kind]):
+        self.payloads = payloads
 
     @property
     def weights(self) -> List[int]:
@@ -61,7 +65,6 @@ class Payloads(NamedTuple):
     def payload(self) -> str:
         p = random.choices(self.payloads,
                            weights=self.weights, k=1)[0]
-        
         return random.choice(p.payloads)
 
 class MutateFunctions(NamedTuple):
@@ -94,10 +97,11 @@ def read_tokens(filename:str) -> List[str]:
         return list(filter(lambda l: l, lines))
 
 class Mutator:
-    def __init__(self, injection_type: str = 'xss'):
+    def __init__(self, injection_type: InjectionType = InjectionType.XSS):
         self.injection_type = injection_type
+        self.param_sql_typ: ParamSQLiType = {}
         # register mutating functions
-        if injection_type == 'xss':
+        if injection_type == InjectionType.XSS:
             self.per_param_mutators = MutateFunctions(funcs=[
                 MutateFunc(1, FREQ_STRXSS_PAYLOAD, MutatorXSS.add_strxss_payload),
                 MutateFunc(2, FREQ_XSS_PAYLOAD, MutatorXSS.add_xss_payload),
@@ -106,7 +110,7 @@ class Mutator:
                 MutateFunc(5, FREQ_SKIP_PARAM, self.skip_param),
                 MutateFunc(6, FREQ_SYNTAX_TOKEN, MutatorXSS.add_syntax_token),
             ])
-        elif injection_type == 'sqli':
+        elif injection_type == InjectionType.SQLI:
             self.per_param_mutators = MutateFunctions(funcs=[
                 MutateFunc(1, FREQ_SQLI_PAYLOAD, MutatorSQL.add_sqli_payload),
                 MutateFunc(2, FREQ_TYPE_ALTER, self.alter_type),
@@ -124,17 +128,21 @@ class Mutator:
 
         if from_node.size == 0:
             # does not have any parameters
-            new_params = self.cross_over(from_node, node_list)
+            new_params, self.param_sql_typ = self.cross_over(from_node, node_list)
         else:
             choice = random.choices([self.per_param_mutate, self.all_param_mutate], 
-                                    weights=[80,20], 
+                                    weights=[100,0], 
                                     k=1)[0]
-
+            
+            if self.injection_type == InjectionType.SQLI:
+                self.param_sql_typ = copy.deepcopy(from_node.param_sqli_type)
+        
             new_params = choice(from_node, node_list)
 
         new_node = Node(url=from_node.url,
                         method=from_node.method,
                         params=new_params,
+                        param_sqli_type=self.param_sql_typ,
                         parent_request=from_node)
 
         logger.debug("Mutated node: %s", new_node)
@@ -147,17 +155,25 @@ class Mutator:
         params: Params = {}
 
         for param_type in [HTTPMethod.GET, HTTPMethod.POST]:
-            params[param_type] = copy.deepcopy(from_node.params[param_type]) 
+            params[param_type] = copy.deepcopy(from_node.params[param_type])
 
             for key, value in from_node.params[param_type].items():
                 if (random.randint(0, FREQ_CLEAR_PARAM) == 0):
-                    value = ""
+                    value = [""]
+                    self.param_sql_typ[param_type][key] = []
 
-                (param, val) = self.per_param_mutators.mutator(key, value)
+                mutateFunc = self.per_param_mutators.mutator
+                # Need to keep track with SQLInjection Type lol :))
+                if mutateFunc.__qualname__  in ['MutatorSQL.add_heuristic_payload', 'MutatorSQL.add_sqli_payload']:
+                    (param, val, typ) = mutateFunc(key, value)
+                    self.param_sql_typ[param_type][param] = typ
+                else:
+                    (param, val) = mutateFunc(key, value)
 
                 if param != key:
                     # delete the original parameter if mutated parameter name is different
                     del params[param_type][key]
+                    del self.param_sql_typ[param_type][key]
 
                 # set the new parameter
                 params[param_type][param] = val
@@ -169,9 +185,10 @@ class Mutator:
         logger = logging.getLogger(__name__)
         logger.debug("Mutating all parameters")
 
-        functions = [self.cross_over]
+        functions = [self.cross_over] # lol, if u want more functions, plz add :)
+        params, self.param_sql_typ = random.choice(functions)(from_node, node_list)
 
-        return random.choice(functions)(from_node, node_list)
+        return params
 
     @staticmethod
     def select_favourable_node(node_list: List[Node], 
@@ -197,7 +214,7 @@ class Mutator:
         return cross_node
 
     @staticmethod
-    def cross_over(from_node:Node, node_list: List[Node]) -> Params:
+    def cross_over(from_node:Node, node_list: List[Node]) -> Tuple[Params, ParamSQLiType]:
         """
             Cross over the parameters of two different
             nodes to form a new one. Note that the url and method
@@ -209,12 +226,14 @@ class Mutator:
         logger.debug("Mutate fun cross-over")
 
         params: Params = {}
+        param_sql_typ: ParamSQLiType = {}
 
         # this is a double cross-over
         # cross-over between get and post parameters
         # at each cross-over a new link is chosen
         for param_type in [HTTPMethod.GET, HTTPMethod.POST]:
-            params[param_type] = copy.deepcopy(from_node.params[param_type]) 
+            params[param_type] = copy.deepcopy(from_node.params[param_type])
+            param_sql_typ[param_type] = copy.deepcopy(from_node.param_sqli_type[param_type]) 
 
             if from_node.method == HTTPMethod.GET and param_type == HTTPMethod.POST:
                 # GET requests should not have post parameters
@@ -228,8 +247,9 @@ class Mutator:
 
             # merge their parameters
             params[param_type].update(cross_node.params[param_type])
+            param_sql_typ[param_type].update(cross_node.param_sqli_type[param_type])
 
-        return params
+        return (params, param_sql_typ)
 
     @staticmethod
     def skip_param(param: str, val: List[str]) -> Tuple[str, List[str]]:
@@ -357,19 +377,10 @@ class MutatorXSS:
         return Mutator.add_random_text(param2, val2)  
 
 class MutatorSQL:
-    sqli_payload: Payloads = Payloads([
-        Kind(weight=10, payloads=read_tokens("Payloads/SQLi/generic")),
-        Kind(weight=30, payloads=read_tokens("Payloads/SQLi/boolean_blind")),
-        Kind(weight=20, payloads=read_tokens("Payloads/SQLi/error")),
-        Kind(weight=0, payloads=read_tokens("Payloads/SQLi/inline_query")),
-        Kind(weight=20, payloads=read_tokens("Payloads/SQLi/stacked_query")),
-        Kind(weight=20, payloads=read_tokens("Payloads/SQLi/timebased")),
-        Kind(weight=0, payloads=read_tokens("Payloads/SQLi/union"))
-    ])
 
     @staticmethod
     def add_heuristic_payload(param: str,
-                              val: List[str]) -> Tuple[str, List[str]]:
+                              val: List[str]) -> Tuple[str, List[str], List[int]]:
         """
             Add short payloads that may trigger SQLi like: ();,'" 
         """
@@ -380,19 +391,78 @@ class MutatorSQL:
         while randStr.count('\'') != 1 or randStr.count('\"') != 1:
             randStr = Mutator.random_str(length=10, alphabet=HEURISTIC_CHECK_ALPHABET)
         
-        return (param, list(map(lambda x: x + randStr, val)))
+        return (param, list(map(lambda x: x + randStr, val)), [-1]) # -1 to mark heuristic test
     
     @staticmethod
     def add_sqli_payload(param: str, 
-                        val: List[str]) -> Tuple[str, List[str]]:
+                        val: List[str]) -> Tuple[str, List[str], List[int]]:
         """
-            Prepends or appends a random xss payload
+            Prepends or appends a random sqli payload
             in the parameter.
         """
         logger = logging.getLogger(__name__)
         logger.debug("Mutate fun insert sqli")
 
-        payload: str = MutatorSQL.sqli_payload.payload
+        while True:
+            test = random.choice(conf.tests)
+            clause = test.clause
+            if test.stype == PAYLOAD.TECHNIQUE.TIME:
+                break
+            # if test.stype == PAYLOAD.TECHNIQUE.UNION:
+            #     continue
+            
+            # break
+        
+        
+        comment = agent.getComment(test.request)
+        fstPayload = agent.cleanupPayload(test.request.payload, origValue=None)
+        boundaries = conf.boundaries
+        conf.level = 1
+        while True:
+            boundary = random.choice(boundaries)
+            
+            if boundary.level > conf.level:
+                continue
 
-        return (param, list(map(lambda x: payload + x, val)))
+            # Skip boundary if it does not match against test's <clause>
+            # Parse test's <clause> and boundary's <clause>
+            clauseMatch = False
+
+            for clauseTest in test.clause:
+                if clauseTest in boundary.clause:
+                    clauseMatch = True
+                    break
+
+            if test.clause != [0] and boundary.clause != [0] and not clauseMatch:
+                continue
+
+            # Skip boundary if it does not match against test's <where>
+            # Parse test's <where> and boundary's <where>
+            whereMatch = False
+
+            for where in test.where:
+                if where in boundary.where:
+                    whereMatch = True
+                    break
+
+            if not whereMatch:
+                continue
+
+            # Parse boundary's <prefix>, <suffix> and <ptype>
+            prefix = boundary.prefix or ""
+            suffix = boundary.suffix or ""
+            ptype = boundary.ptype
+
+            where = random.choice(test.where)
+
+            if fstPayload:
+                boundPayload = agent.prefixQuery(fstPayload, prefix, where, clause)
+                boundPayload = agent.suffixQuery(boundPayload, comment, suffix, where)
+                reqPayload = agent.payload(newValue=boundPayload, where=where)
+            else:
+                reqPayload = None # damn
+            break
+        
+
+        return (param, list(map(lambda x: x + reqPayload, val)), [conf.tests.index(test), boundaries.index(boundary), test.where.index(where)])
         

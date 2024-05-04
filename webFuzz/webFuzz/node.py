@@ -12,7 +12,7 @@ from aiohttp.typedefs import CIMultiDictProxy
 
 from .environment     import env
 from .misc            import object_to_tuple, query_to_dict, calc_weighted_difference, to_bucket, parse_headers, parse_file
-from .types           import OutputMethod, Params, Policy, XSSConfidence, SQLIConfidence, SQLIType, UrlType, HTTPMethod, FuzzerException, CFGTuple, CFG
+from .types           import InjectionType, OutputMethod, Params, ParamSQLiType, Policy, XSSConfidence, SQLIConfidence, UrlType, HTTPMethod, FuzzerException, CFGTuple, CFG
 
 # post (and maybe get) parameters can get pretty huge. for instance when sending a file
 # via post. Or sometimes a parameter can get reescaped in every request/response cycle
@@ -39,14 +39,20 @@ class Node:
                  params: Optional[Params] = None,
                  parent_request: Optional[Node] = None,
                  exec_time: float = 0,
-                 sqli_type: SQLIType = SQLIType.NONE,
+                 param_sqli_type: Optional[ParamSQLiType] = None,
                  label: str = ""):
 
         if not params:
             params = {}
-            
+
         params[HTTPMethod.GET] = params.get(HTTPMethod.GET, {})
         params[HTTPMethod.POST] = params.get(HTTPMethod.POST, {})
+
+        if not param_sqli_type:
+            param_sqli_type = {}
+            
+        param_sqli_type[HTTPMethod.GET] = param_sqli_type.get(HTTPMethod.GET, {})
+        param_sqli_type[HTTPMethod.POST] = param_sqli_type.get(HTTPMethod.POST, {})
 
         if isinstance(url, str):
             url = urlparse(url)
@@ -61,7 +67,13 @@ class Node:
             self._url: str = urlunparse(url._replace(query=''))
         else:
             raise FuzzerException(f"Invalid url type {str(type(url))}")
+        
+        for method in [HTTPMethod.GET, HTTPMethod.POST]:
+            for key in params[method].keys():
+                if not param_sqli_type[method].get(key):
+                    param_sqli_type[method][key] = []
 
+        self.param_sqli_type = param_sqli_type
         self._method = method
 
         if method == HTTPMethod.GET and self.params[HTTPMethod.POST]:
@@ -330,6 +342,8 @@ class Node:
         state['url'] = self.url
         state['method'] = self.method.name
         state['params'] = self.params
+        if env.args.injection_type == InjectionType.SQLI:
+            state['param_sqli_type'] = self.param_sqli_type
         state['xss_confidence'] = self.xss_confidence.name
         state['cover_score'] = str(f"{self.cover_score:.3f}")
         state['mutated_score'] = self.mutated_score

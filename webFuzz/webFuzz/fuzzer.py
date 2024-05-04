@@ -13,10 +13,13 @@ from aiohttp.tracing import TraceConfig
 from urllib.parse    import urlparse
 from contextlib      import asynccontextmanager
 
+import requests
+
+
 # User defined modules
 from .worker        import Worker
 #from .curses_menu   import Curses_menu
-from .environment   import env
+from .environment   import env, stats
 from .node          import Node
 from .types         import Arguments, FuzzerLogger, InstrumentArgs, OutputMethod, get_logger, HTTPMethod, Statistics, ExitCode, RunMode, InjectionType
 from .misc          import retrieve_headers, sigalarm_handler, sigint_handler, rtt_trace_config
@@ -27,6 +30,9 @@ from .browser       import Browser
 from .parser        import Parser
 from .detector      import Detector
 from .simple_menu   import Simple_menu
+from lib.core.common import setPaths
+from lib.core.payloads import loadPayloads, loadBoundaries
+from lib.core.option import _setKnowledgeBaseAttributes, _setConfig
 import time
 
 class Fuzzer:
@@ -40,7 +46,11 @@ class Fuzzer:
 
         logger = get_logger(__name__)
         logger.debug(args)
-
+        _setConfig()
+        setPaths()
+        loadPayloads()
+        loadBoundaries()
+        _setKnowledgeBaseAttributes()
         self.worker_count = args.worker
 
         meta = json.loads(open(args.meta_file).read())
@@ -84,10 +94,10 @@ class Fuzzer:
 
         self._detector = Detector()
 
-        self.stats = Statistics(start_node)
+        stats.setNode(start_node)
 
     @asynccontextmanager
-    async def http_session(cookies: Dict[str, str],
+    async def aiohttp_session(cookies: Dict[str, str],
                            headers: Dict[str, str],
                            conn_count: int) -> AsyncIterator[ClientSession]:
         logger = get_logger(__name__)
@@ -116,7 +126,7 @@ class Fuzzer:
 
             self.http_cookies = result.cookies
 
-        async with Fuzzer.http_session(self.http_cookies, 
+        async with Fuzzer.aiohttp_session(self.http_cookies, 
                                        self.http_headers, 
                                        self.worker_count) as s:
 
@@ -125,6 +135,7 @@ class Fuzzer:
             workers: List[asyncio.Task] = []
             for count in range(self.worker_count):
                 worker_id = str(random.randrange(10000, 1000000))
+                self._detector.setClientSession(s)
                 worker = Worker(worker_id,
                                 s,
                                 self._crawler,
@@ -132,8 +143,7 @@ class Fuzzer:
                                 self._parser,
                                 self._detector,
                                 self._node_iterator,
-                                self._session_node,
-                                self.stats)
+                                self._session_node)
 
                 workers.append(worker.async_run())
 
