@@ -9,10 +9,11 @@ from contextlib   import asynccontextmanager
 
 from lib.core.agent import agent
 from lib.core.data import conf, kb
-from lib.core.common import extractRegexResult, listToStrValue, randomStr, removeReflectiveValues
+from lib.core.common import average, extractRegexResult, getFilteredPageContent, listToStrValue, randomStr, removeReflectiveValues, stdev
 from lib.core.enums import PAYLOAD
-from lib.core.settings import MAX_TIME_RESPONSES, MIN_TIME_RESPONSES
+from lib.core.settings import CANDIDATE_SENTENCE_MIN_LENGTH, MAX_TIME_RESPONSES, MIN_TIME_RESPONSES, MIN_VALID_DELAYED_RESPONSE, SLEEP_TIME_MARKER, TIME_STDEV_COEFF
 from lib.core.threads import getCurrentThreadData
+from lib.parser.html import htmlParser
 
 from .environment import env, stats
 from .misc        import get_logger, longest_str_match
@@ -126,7 +127,7 @@ class Detector():
 
         return result
         
-    def record_response(self, 
+    def record_response_XSS(self, 
                         node: Node, 
                         confidence: XSSConfidence, 
                         id_: str,
@@ -153,6 +154,36 @@ class Detector():
             if node.is_mutated:
                 # reward parent node with a sink found
                 node.parent_request.has_sinks = True
+
+    def record_response_SQLi(self, 
+                        node: Node, 
+                        confidence: SQLIConfidence, 
+                        method: HTTPMethod,
+                        param: str,
+                        value: str) -> None:
+        logger = get_logger(__name__)
+        
+        if confidence == SQLIConfidence.NONE:
+            return
+
+        if node.url not in self._flagged_elements_sql[confidence]:
+            self._flagged_elements_sql[confidence][node.url] = set()
+        
+        id_ = hash((method, param))
+        if id_ not in self._flagged_elements_sql[confidence][node.url]:
+            if not self._flagged_elements_sql[SQLIConfidence.HIGH].get(node.url, []):
+                logger.warning("Possible SQLi found with confidence %s. Method: %s, Param: %s, Value: %s, Url: %s, Node: %s",
+                                confidence, method, param, value, node.full_url, node)
+                if confidence == SQLIConfidence.HIGH:
+                    self.vuln_count += 1
+
+            self._flagged_elements_sql[confidence][node.url].add(id_)
+
+            if node.is_mutated:
+                # reward parent node with a sink found
+                node.parent_request.has_sinks = True
+        
+        
 
     def should_analyze(self, id_: str, url: str, content: str) -> bool:
         if id_ not in self._flagged_elements_xss[XSSConfidence.HIGH].get(url, []) and \
@@ -181,17 +212,18 @@ class Detector():
 
             id_ = elem.name + "/" + elem.attrs.get('id', "")
 
-            if elem.name == "script":
-                if not self.should_analyze(id_, node.url, elem.text):
+            if elem.name.lower() == "script":
+                print(elem.string)
+                if not self.should_analyze(id_, node.url, elem.string):
                     continue
 
-                result = Detector.handle_script(elem.text)
+                result = Detector.handle_script(elem.string)
 
-                self.record_response(node,
-                                     result, 
-                                     id_, 
-                                     elem_type="Script", 
-                                     value=elem.text)
+                self.record_response_XSS(node,
+                                        result, 
+                                        id_, 
+                                        elem_type="Script", 
+                                        value=elem.string)
 
                 confidence = max(result, confidence)
 
@@ -282,14 +314,14 @@ class Detector():
     async def sqli_scanner(self, node: Node, html: str) -> SQLIConfidence:
         logger = get_logger(__name__)
 
-        confidence = SQLIConfidence.NONE
         for httpmethod in [HTTPMethod.GET, HTTPMethod.POST]:
             for key, value in node.param_sqli_type[httpmethod].items():
                 if len(value) == 0:
                     continue
-
+                
+                confidence = SQLIConfidence.NONE
                 if value[0] == -1:
-                    self.sqli_heuristic_check(node, html)
+                    self.sqli_heuristic_check(node, html, key, httpmethod)
                 else:
                     test = conf.tests[value[0]]
                     boundary = conf.boundaries[value[1]]
@@ -341,7 +373,7 @@ class Detector():
                                 ratio *= seqMatcher.quick_ratio()
 
                                 if ratio == 1.0:
-                                    return
+                                    continue
                                 else:
                                     confidence = SQLIConfidence.LOW
                             except (MemoryError, OverflowError):
@@ -367,12 +399,24 @@ class Detector():
                                     errorResult = self.pageComparison(errorResponse, originalResponse, negative_logic)
                                     if errorResult:
                                         confidence = SQLIConfidence.NONE
-                                        return
+                                        continue
                                 
                                 confidence = SQLIConfidence.HIGH
                             else:
-                                pass
-                                
+                                originalSet = set(getFilteredPageContent(originalResponse, True, "\n").split("\n"))
+                                trueSet = set(getFilteredPageContent(trueResponse, True, "\n").split("\n"))
+                                falseSet = set(getFilteredPageContent(falseResponse, True, "\n").split("\n"))
+
+                                if originalSet == trueSet != falseSet:
+                                    candidates = trueSet - falseSet
+
+                                    if candidates:
+                                        candidates = sorted(candidates, key=len)
+                                        for candidate in candidates:
+                                            if re.match(r"\A[\w.,! ]+\Z", candidate) and ' ' in candidate and candidate.strip() and len(candidate) > CANDIDATE_SENTENCE_MIN_LENGTH:
+                                                confidence = SQLIConfidence.HIGH
+                                                continue
+
                                                
                     elif method == PAYLOAD.METHOD.GREP:
                         check = agent.cleanupPayload(test.response.grep, origValue=None)
@@ -391,27 +435,71 @@ class Detector():
                         
                     elif method == PAYLOAD.METHOD.TIME:
                         responseTimekey = hash((node.url, node.method))
-                        if (len(kb.responseTimes.get(responseTimekey, []))) < MIN_TIME_RESPONSES:
-                            while len(kb.responseTimes[responseTimekey]) < MIN_TIME_RESPONSES:
-                                cleanParams = copy.deepcopy(node.params)
-                                cleanParams[httpmethod][key] = list(map(lambda x: '', cleanParams[httpmethod][key]))
-                                timecheckNode = Node(url=node.url,
-                                                     method=node.method,
-                                                    params=cleanParams,
-                                                    param_sqli_type=node.param_sqli_type,
-                                                    parent_request=node.parent_request)
-                                async with self.http_send(timecheckNode) as r:
-                                    kb.responseTimes[kb.responseTimeMode].append(timecheckNode.responseTime)
-                                    if len(kb.responseTimes[kb.responseTimeMode]) > MAX_TIME_RESPONSES:
-                                        kb.responseTimes[kb.responseTimeMode] = kb.responseTimes[kb.responseTimeMode][-MAX_TIME_RESPONSES // 2:]
-                            
-                    elif method == PAYLOAD.METHOD.UNION:
-                        pass
                         
+                        if (len(kb.responseTimes.get(responseTimekey, []))) < MIN_TIME_RESPONSES:
+                            if responseTimekey not in kb.responseTimes:
+                                kb.responseTimes[responseTimekey] = []
+                            cleanParams = copy.deepcopy(node.params)
+                            cleanParams[httpmethod][key] = list(map(lambda x: '', cleanParams[httpmethod][key]))
+                            timecheckNode = Node(url=node.url,
+                                                method=node.method,
+                                                params=cleanParams,
+                                                param_sqli_type=node.param_sqli_type,
+                                                parent_request=node.parent_request)
+                            while len(kb.responseTimes.get(responseTimekey, [])) < MIN_TIME_RESPONSES:
+                                async with self.http_send(timecheckNode) as r:
+                                    kb.responseTimes[responseTimekey].append(timecheckNode.exec_time)
+                                    if len(kb.responseTimes[responseTimekey]) > MAX_TIME_RESPONSES:
+                                        kb.responseTimes[responseTimekey] = kb.responseTimes[responseTimekey][-MAX_TIME_RESPONSES // 2:]
 
-    def sqli_heuristic_check(self, node: Node, html: str) -> bool:
+
+                        deviation = stdev(kb.responseTimes.get(responseTimekey, []))
+                        lowerStdLimit = average(kb.responseTimes[responseTimekey]) + TIME_STDEV_COEFF * deviation
+
+                        # 99.9999999997440% of all non time-based SQL injection affected
+                        # response times should be inside +-7*stdev([normal response times])
+                        # Math reference: http://www.answers.com/topic/standard-deviation
+                        trueParams = copy.deepcopy(node.params)
+                        trueParams[httpmethod][key] = list(map(lambda x: agent.adjustLateValues(x), trueParams[httpmethod][key]))
+                        trueNode = Node(url=node.url,
+                                        method=node.method,
+                                        params=trueParams,
+                                        param_sqli_type=node.param_sqli_type,
+                                        parent_request=node.parent_request)
+                        async with self.http_send(trueNode) as r:
+                            trueDelayed = (trueNode.exec_time >= max(MIN_VALID_DELAYED_RESPONSE, lowerStdLimit))
+                        
+                        if trueDelayed:
+                            # Extra step for false positives
+                            if SLEEP_TIME_MARKER in response:
+                                falseParams = copy.deepcopy(node.params)
+                                falseParams[httpmethod][key] = list(map(lambda x: x.replace(SLEEP_TIME_MARKER, 0), falseParams[httpmethod][key]))
+                                falseNode = Node(url=node.url,
+                                                method=node.method,
+                                                params=falseParams,
+                                                param_sqli_type=node.param_sqli_type,
+                                                parent_request=node.parent_request)
+                                async with self.http_send(falseNode) as r:
+                                    falseDelayed = (falseNode.exec_time >= max(MIN_VALID_DELAYED_RESPONSE, lowerStdLimit))
+                                
+                                if falseDelayed:
+                                    continue
+
+                                async with self.http_send(trueNode) as r:
+                                    trueDelayed = (trueNode.exec_time >= max(MIN_VALID_DELAYED_RESPONSE, lowerStdLimit))
+                                    if trueDelayed:
+                                        confidence = SQLIConfidence.HIGH
+
+                    self.record_response_SQLi(node, confidence, httpmethod, key, node.params[httpmethod][key][0])
+
+    def sqli_heuristic_check(self, node: Node, html: str, key, httpmethod) -> bool:
         logger = get_logger(__name__)
         logger.info("Performing Heuristic SQLi detection...")
+
+        confidence = SQLIConfidence.NONE
+
+        if htmlParser(html) != None:
+            confidence = SQLIConfidence.HIGH
 
         def _(page):
             return any(_ in (page or "") for _ in FORMAT_EXCEPTION_STRINGS)
@@ -419,5 +507,6 @@ class Detector():
         casting = _(html)
         
         if casting:
-            msg = "Possible casting detected at:"
-            logger.warning(f"{msg} {Node.__hash__}")
+            confidence = SQLIConfidence.HIGH
+        
+        self.record_response_SQLi(node, confidence, httpmethod, key, node.params[httpmethod][key][0])

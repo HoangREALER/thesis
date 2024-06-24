@@ -5,7 +5,7 @@ import sys
 from os             import system
 from typing         import Callable
 
-from .types         import ExitCode, get_logger
+from .types         import ExitCode, InjectionType, get_logger
 from .environment   import env, stats
 
 def clear(): 
@@ -79,7 +79,7 @@ class Simple_menu:
             self.printer('Crawler Pending URLs: {:d}'.format(stats.crawler_pending_urls))
             self.printer('Current Coverage Score: {:0.4f}%'.format(stats.current_node.cover_score))
             self.printer('Total Coverage Score: {:0.4f}%'.format(stats.total_cover_score))
-            self.printer('Possible XSS: {:d}'.format(stats.total_vuln))
+            self.printer('Possible {:s}: {:d}'.format('xss' if env.args.injection_type == InjectionType.XSS else 'SQL Injection', stats.total_vuln))
 
             self.printer('Executing link: {:s}'.format(stats.current_node.url[:105]))
             self.printer('Response time: {:0.2f} sec'.format(stats.current_node.exec_time))

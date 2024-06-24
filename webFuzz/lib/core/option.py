@@ -22,6 +22,7 @@ from xml.etree.ElementTree import ElementTree
 def _setConfig():
     conf.tests = []
     conf.boundaries = []
+    conf.timeSec = 5
 
 def _setKnowledgeBaseAttributes(flushAll=True):
     """

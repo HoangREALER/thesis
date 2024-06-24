@@ -254,10 +254,6 @@ class Agent(object):
             for _ in set(re.findall(r"\[RANDSTR(?:\d+)?\]", payload, re.I)):
                 payload = payload.replace(_, randomStr())
 
-            if hashDBRetrieve(HASHDB_KEYS.DBMS_FORK) in (FORK.MEMSQL, FORK.TIDB, FORK.DRIZZLE):
-                payload = re.sub(r"(?i)\bORD\(", "ASCII(", payload)
-                payload = re.sub(r"(?i)\bMID\(", "SUBSTR(", payload)
-                payload = re.sub(r"(?i)\bNCHAR\b", "CHAR", payload)
 
             # NOTE: https://github.com/sqlmapproject/sqlmap/issues/5057
             match = re.search(r"(=0x)(303a303a)3(\d{2,})", payload)

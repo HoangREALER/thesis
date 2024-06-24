@@ -122,7 +122,7 @@ class Crawler:
         logger = get_logger(__name__)
 
         for rule in self._block_rules:
-            if Crawler._is_match(rule, new_request):
+            if not Crawler._is_match(rule, new_request):
                 logger.info("Blocked %s", new_request)
                 return True
                

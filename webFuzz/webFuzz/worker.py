@@ -10,7 +10,7 @@ from contextlib   import asynccontextmanager
 # User defined modules
 from .environment   import env, stats
 from .node          import Node
-from .types         import FuzzerLogger, get_logger, HTTPMethod, RequestStatus, Statistics, ExitCode, UnimplementedHttpMethod, InvalidContentType, InvalidHttpCode, XSSConfidence, InjectionType
+from .types         import FuzzerLogger, SQLIConfidence, get_logger, HTTPMethod, RequestStatus, Statistics, ExitCode, UnimplementedHttpMethod, InvalidContentType, InvalidHttpCode, XSSConfidence, InjectionType
 from .misc          import iter_join, lazyFunc
 from .mutator       import Mutator
 from .node_iterator import NodeIterator
@@ -143,7 +143,8 @@ class Worker():
             self.update_stats(request)
 
             logger.info("Request Completed: %s", request)
-            if (request._xss_confidence > XSSConfidence['NONE'] and self._injection_type == InjectionType.XSS):
+            if (request._xss_confidence > XSSConfidence['NONE'] and self._injection_type == InjectionType.XSS) \
+                or (request._sqli_confidence > SQLIConfidence['None'] and self._injection_type == InjectionType.SQLI):
                 logger.warning("Suspicious request %s", request)
 
             return status

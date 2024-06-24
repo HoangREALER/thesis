@@ -716,9 +716,6 @@ DNS_BOUNDARIES_ALPHABET = re.sub(r"[a-fA-F]", "", string.ascii_letters)
 # Alphabet used for heuristic checks
 HEURISTIC_CHECK_ALPHABET = ('"', '\'', ')', '(', ',', '.')
 
-# Minor artistic touch
-BANNER = re.sub(r"\[.\]", lambda _: "[\033[01;41m%s\033[01;49m]" % random.sample(HEURISTIC_CHECK_ALPHABET, 1)[0], BANNER)
-
 # String used for dummy non-SQLi (e.g. XSS) heuristic checks of a tested parameter value
 DUMMY_NON_SQLI_CHECK_APPENDIX = "<'\">"
 

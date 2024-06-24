@@ -68,10 +68,10 @@ class Node:
         else:
             raise FuzzerException(f"Invalid url type {str(type(url))}")
         
-        for method in [HTTPMethod.GET, HTTPMethod.POST]:
-            for key in params[method].keys():
-                if not param_sqli_type[method].get(key):
-                    param_sqli_type[method][key] = []
+        for method_ in [HTTPMethod.GET, HTTPMethod.POST]:
+            for key in params[method_].keys():
+                if not param_sqli_type[method_].get(key):
+                    param_sqli_type[method_][key] = []
 
         self.param_sqli_type = param_sqli_type
         self._method = method
@@ -85,7 +85,8 @@ class Node:
         self.has_sinks = False
 
         self.ref_count: int = 0
-        self._xss_confidence = XSSConfidence['NONE']
+        self._xss_confidence = XSSConfidence.NONE
+        self._sqli_confidence = SQLIConfidence.NONE
 
         self.label = label
 
@@ -176,6 +177,18 @@ class Node:
 
         return self
 
+    @property
+    def sqli_confidence(self):
+        return self._sqli_confidence
+
+    @sqli_confidence.setter
+    def xss_confidence(self, value: SQLIConfidence) -> Node:
+        self._sqli_confidence = value
+        # force refresh of json
+        self.__dict__.pop('_json',None)
+
+        return self
+    
     @property
     def cover_score(self):
         if env.instrument_args.policy == Policy.EDGE:
@@ -290,15 +303,16 @@ class Node:
         """
         if not isinstance(node2, type(self)):
             raise NotImplementedError()
-
-        return calc_weighted_difference(node2.cover_score_raw,      self.cover_score_raw,      COVER_SCORE_RWEIGHT)    + \
+        a = calc_weighted_difference(node2.cover_score_raw,      self.cover_score_raw,      COVER_SCORE_RWEIGHT)    + \
                calc_weighted_difference(node2.exec_time,            self.exec_time,            EXEC_TIME_RWEIGHT)      + \
                calc_weighted_difference(node2.size,                 self.size,                 NODE_SIZE_RWEIGHT)      + \
                calc_weighted_difference(node2.picked_score,         self.picked_score,         PICKED_SCORE_RWEIGHT)   + \
                calc_weighted_difference(node2.mutated_score,        self.mutated_score,        MUTATED_SCORE_RWEIGHT)  + \
                calc_weighted_difference(node2.sink_score,           self.sink_score,           SINK_SCORE_RWEIGHT)
+        return a
         
     def __lt__(self, node2: Node) -> bool:
+
         return self.__cmp__(node2) < 0
 
     def __gt__(self, node2: Node) -> bool:
@@ -344,7 +358,7 @@ class Node:
         state['params'] = self.params
         if env.args.injection_type == InjectionType.SQLI:
             state['param_sqli_type'] = self.param_sqli_type
-        state['xss_confidence'] = self.xss_confidence.name
+        state[f'{env.args.injection_type}_confidence'] = self.xss_confidence.name if env.args.injection_type == InjectionType.XSS else self.sqli_confidence.name
         state['cover_score'] = str(f"{self.cover_score:.3f}")
         state['mutated_score'] = self.mutated_score
         state['exec_time'] = str(f"{self.exec_time:.3f}")

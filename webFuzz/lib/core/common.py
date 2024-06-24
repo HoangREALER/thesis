@@ -88,7 +88,6 @@ from lib.core.exception import SqlmapSyntaxException
 from lib.core.exception import SqlmapSystemException
 from lib.core.exception import SqlmapUserQuitException
 from lib.core.exception import SqlmapValueException
-from lib.core.settings import BANNER
 from lib.core.settings import BOLD_PATTERNS
 from lib.core.settings import BOUNDARY_BACKSLASH_MARKER
 from lib.core.settings import BOUNDED_INJECTION_MARKER
@@ -103,7 +102,6 @@ from lib.core.settings import DBMS_DIRECTORY_DICT
 from lib.core.settings import DEFAULT_COOKIE_DELIMITER
 from lib.core.settings import DEFAULT_GET_POST_DELIMITER
 from lib.core.settings import DEFAULT_MSSQL_SCHEMA
-from lib.core.settings import DEV_EMAIL_ADDRESS
 from lib.core.settings import DOLLAR_MARKER
 from lib.core.settings import DUMMY_USER_INJECTION
 from lib.core.settings import DYNAMICITY_BOUNDARY_LENGTH
@@ -113,7 +111,6 @@ from lib.core.settings import FILE_PATH_REGEXES
 from lib.core.settings import FORCE_COOKIE_EXPIRATION_TIME
 from lib.core.settings import FORM_SEARCH_REGEX
 from lib.core.settings import GENERIC_DOC_ROOT_DIRECTORY_NAMES
-from lib.core.settings import GIT_PAGE
 from lib.core.settings import GITHUB_REPORT_OAUTH_TOKEN
 from lib.core.settings import GOOGLE_ANALYTICS_COOKIE_PREFIX
 from lib.core.settings import HASHDB_MILESTONE_VALUE
@@ -123,7 +120,6 @@ from lib.core.settings import IGNORE_PARAMETERS
 from lib.core.settings import IGNORE_SAVE_OPTIONS
 from lib.core.settings import INFERENCE_UNKNOWN_CHAR
 from lib.core.settings import IP_ADDRESS_REGEX
-from lib.core.settings import ISSUES_PAGE
 from lib.core.settings import IS_TTY
 from lib.core.settings import IS_WIN
 from lib.core.settings import LARGE_OUTPUT_THRESHOLD
@@ -167,7 +163,6 @@ from lib.core.settings import URLENCODE_CHAR_LIMIT
 from lib.core.settings import URLENCODE_FAILSAFE_CHARS
 from lib.core.settings import USER_AGENT_ALIASES
 from lib.core.settings import VERSION_COMPARISON_CORRECTION
-from lib.core.settings import VERSION_STRING
 from lib.core.settings import ZIP_HEADER
 from lib.core.settings import WEBSCARAB_SPLITTER
 from lib.core.threads import getCurrentThreadData
@@ -1373,7 +1368,6 @@ def safeStringFormat(format_, params):
                 if match:
                     if count >= len(params):
                         warnMsg = "wrong number of parameters during string formatting. "
-                        warnMsg += "Please report by e-mail content \"%r | %r | %r\" to '%s'" % (format_, params, retVal, DEV_EMAIL_ADDRESS)
                         raise SqlmapValueException(warnMsg)
                     else:
                         try:

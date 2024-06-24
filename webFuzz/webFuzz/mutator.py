@@ -24,13 +24,13 @@ HEURISTIC_CHECK_ALPHABET = ('"', '\'', ')', '(', ',', '.')
 ## XSS
 FREQ_STRXSS_PAYLOAD  = 0
 FREQ_XSS_PAYLOAD     = 35
-FREQ_TYPE_ALTER      = 0
-FREQ_RAND_TEXT       = 0
+FREQ_TYPE_ALTER      = 5
+FREQ_RAND_TEXT       = 35
 FREQ_SYNTAX_TOKEN    = 20
-FREQ_SKIP_PARAM      = 0
+FREQ_SKIP_PARAM      = 15
 ## SQLI
-FREQ_HEURISTIC_PAYLOAD = 0
-FREQ_SQLI_PAYLOAD     = 100
+FREQ_HEURISTIC_PAYLOAD = 45
+FREQ_SQLI_PAYLOAD     = 0
 
 # Smaller values indicate higher frequency
 FREQ_CLEAR_PARAM     = 5 
@@ -312,7 +312,7 @@ class Mutator:
         logger = logging.getLogger(__name__) # Gets the module's logger.
         logger.debug("Mutate fun add random text")
 
-        payload:str = Mutator.random_str(random.randrange(1,2))
+        payload:str = Mutator.random_str(random.randrange(6,10))
 
         if random.randint(HEADS,TAILS) == HEADS:
             return (param, list(map(lambda x: payload + x, val)))
@@ -402,16 +402,17 @@ class MutatorSQL:
         """
         logger = logging.getLogger(__name__)
         logger.debug("Mutate fun insert sqli")
-
+        # test = random.choice(conf.tests)
+        # clause = test.clause
         while True:
             test = random.choice(conf.tests)
             clause = test.clause
-            if test.stype == PAYLOAD.TECHNIQUE.TIME:
-                break
-            # if test.stype == PAYLOAD.TECHNIQUE.UNION:
-            #     continue
+            # if test.stype == PAYLOAD.TECHNIQUE.TIME:
+            #     break
+            if test.stype == PAYLOAD.TECHNIQUE.UNION:
+                continue
             
-            # break
+            break
         
         
         comment = agent.getComment(test.request)

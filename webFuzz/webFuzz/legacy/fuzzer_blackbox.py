@@ -141,7 +141,7 @@ class Fuzzer:
         self._session_data = {"cookies": cookies, "headers": headers}
 
         # Create a new node list
-        self._node_list = Node_list(blocklist=args.block, crawler_unseen=set([Node(url=args.URL, method="GET", cover_score_parent=0, params={}, xss_params=set())]))
+        self._node_list = Node_list(blocklist=args.block, crawler_unseen=set([Node(url=args.URL, method="GET", cover_score_parent=0, params={})]))
 
         self._parser = Parser(args.URL, self._node_list._mutator.xss_payloads)
 

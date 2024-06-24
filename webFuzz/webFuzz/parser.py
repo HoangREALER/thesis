@@ -5,7 +5,7 @@ from typing       import Set, List, Dict
 from .misc        import get_logger, query_to_dict
 from .types       import HTTPMethod, UrlType
 from .node        import Node
-
+import logging
 
 class Parser:
     @staticmethod
@@ -53,7 +53,6 @@ class Parser:
 
         for form in html.findAll('form'):
             logger.debug("==> Form parsing: %s", form)
-
             url_obj = urlparse(form.get('action') or "")
 
             if not Parser.is_same_domain(url_obj, called_node.url_object):
@@ -84,7 +83,6 @@ class Parser:
 
             logger.debug("==> Form get: %s", get_params)
             logger.debug("==> Form body: %s", body_params)
-
             links.add(Node(url=url,
                            method=method,
                            params={HTTPMethod.GET: get_params, HTTPMethod.POST: body_params}))
